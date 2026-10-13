@@ -1,6 +1,6 @@
 # indexd Smart Autopilot
 
-[English](README.md) | [Українська](README.ua.md) | [Русский](README.ru.md)
+[English](README.md) | [Українська](README_UA.md) | [Русский]
 
 **indexd Smart Autopilot** — экспериментальное развитие индексатора Sia, продолжающее работу над Smart Autopilot, начатую в `renterd`.
 
