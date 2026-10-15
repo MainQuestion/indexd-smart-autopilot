@@ -28,8 +28,6 @@ notepad .env
 
 `.env` has two required values: `POSTGRES_PASSWORD`, the database password (make it long), and `INDEXD_VERSION`, the image version. There are no defaults: until you set them, compose refuses to start. The `.env` file contains a password, so do not publish it or sync it to the cloud.
 
-If ports 9980–9982 are taken on this computer (for example, renterd is running there), find the commented-out lines `#INDEXD_ADMIN_PORT=39980`, `#INDEXD_SYNCER_PORT=39981` and `#INDEXD_APP_PORT=39982` in `.env`, remove the leading `#` and change the numbers if needed. Check the result with `docker compose config | Select-String published`. The rest of this guide uses the default ports: if you changed them, substitute your own.
-
 You do not need to create data folders: compose uses the **named volumes** `indexd-data` and `postgres-data`, and Docker places them itself.
 
 > Do not replace the named volumes with Windows folders (such as `D:\...:/data`). When we tried that, the blockchain database on the mounted folder was corrupted (`panic: page … already freed`). The cause is not proven, but named volumes are more reliable: the data lives in the native Linux file system inside WSL2.
@@ -46,7 +44,7 @@ docker compose pull
 docker compose run --rm indexd seed
 ```
 
-The command prints a new wallet recovery phrase. Write it down on paper and do not reuse the phrase of another node. Without it you will have no access to the funds or the contracts. You can also get the same phrase in the wizard itself (step 1.4) by typing `seed` instead of a phrase.
+The command prints a new wallet recovery phrase. Write it down on paper and do not reuse the phrase of another node. Without it you will have no access to the funds or the contracts.
 
 ### 1.4 Setup wizard
 
@@ -54,20 +52,15 @@ The command prints a new wallet recovery phrase. Write it down on paper and do n
 docker compose run --rm -it indexd config
 ```
 
-The wizard asks its questions in this order:
-
 | Wizard question | What to answer |
 |---|---|
-| Would you like to change the data directory? (Current: /data) | `no`: the `/data` directory is the `indexd-data` volume |
-| Enter seed phrase | The phrase from step 1.3 (12 words). You can type `seed` instead: the wizard then generates a new phrase, shows it and asks you to re-enter it to confirm |
-| Enter password | The password for the web interface (at least 4 characters) |
-| Enter new database password | The same as `POSTGRES_PASSWORD` in `.env` |
-| Enter new application API advertise URL | `http://localhost:9982`: the address applications on this computer use to connect to indexd (s3d on the same computer). The port must match the published `INDEXD_APP_PORT` |
-| Would you like to configure advanced settings? | `yes`: otherwise the database address and SSL mode are not asked |
-| Admin API Address / Application API Address / Gateway Address | Press Enter to keep `:9980`, `:9982` and `:9981` |
-| Would you like to change the database user? / the database name? | `no` / `no` (it stays `indexd`) |
-| Would you like to change the database address? | `yes`, then `postgres:5432`: the name of the database service from compose, not the suggested `127.0.0.1:5432` (there is no database inside the container) |
-| Would you like to change the database SSL mode? | `yes`, then `disable`: the database is in a neighbouring container and is not published outside, and the suggested `verify-full` needs a certificate it does not have |
+| Recovery phrase | The phrase from the previous step |
+| Admin API password | Choose one — it is the password for the web interface |
+| Application API advertise URL | `http://localhost:9982` — the address applications on this computer will use to connect to indexd (s3d running on the same computer) |
+| Database host / port | `postgres` / `5432` — the name of the database container |
+| Database user / name | `indexd` / `indexd` |
+| Database password | The same as `POSTGRES_PASSWORD` in `.env` |
+| SSL mode | `disable` — the database is in a neighbouring container and is not published outside |
 
 Leave the listen addresses as the wizard suggests: the container itself listens on `:9980` (admin), `:9981` (syncer) and `:9982` (application), and compose publishes these ports to the outside.
 
@@ -186,5 +179,3 @@ The blockchain database (`consensus.db`, about 90 GB) does not need to be backed
 | Admin is not reachable from another computer | By design: the port listens on `127.0.0.1` only |
 | Running out of disk space | The blockchain database takes most of it; check the location of the Docker Desktop virtual disk |
 | The `/api/wallet` request does not respond while the others work | For us this once cleared up by itself after a restart (`docker compose stop -t 90 indexd`, then `up -d`); the cause is not established |
-| The container does not start, ports are taken | Ports 9980 and 9981 are used by another program (for example, renterd). Uncomment the `INDEXD_*_PORT` lines in `.env`, set free numbers and run `docker compose up -d` |
-| `docker compose down` or `stop` takes more than a minute | By design: indexd gets up to 90 seconds to finish writing to the blockchain database cleanly. Do not interrupt the command |
