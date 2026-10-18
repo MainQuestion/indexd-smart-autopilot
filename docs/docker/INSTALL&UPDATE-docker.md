@@ -4,7 +4,7 @@ In this setup indexd runs in two containers: PostgreSQL 18 and indexd itself fro
 
 The image contains only indexd. The s3d gateway is not shipped in Docker yet: install it separately as before (see the [Windows guide](INSTALL-windows.md), section 9) and point it at indexd using the address from step 1.4.
 
-The image is hosted in the GitHub registry: `ghcr.io/mainquestion/indexd-smart-autopilot:<version>`. The image version is the upstream version followed by the short commit hash of the fork, for example `v0.6.1-64dc08d1`. The list of versions is in the Releases section of the repository.
+The image is hosted in the GitHub registry: `ghcr.io/mainquestion/indexd-smart-autopilot:<version>`. The image version is the upstream version followed by the short commit hash of the fork, for example `v0.2.0-alpha.1`. The list of versions is in the Releases section of the repository.
 
 ## Requirements
 
