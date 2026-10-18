@@ -1,0 +1,55 @@
+# An example docker-compose configuration for running the indexd fork with
+# PostgreSQL. See docs/docker/INSTALL&UPDATE-docker.md for the first start and
+# for updates.
+#
+# Create a `.env` file next to this one (copy .env.example) with
+# POSTGRES_PASSWORD and INDEXD_VERSION set; there are no usable defaults for
+# them.
+#
+# The data lives in named Docker volumes, not in folders of the host: the
+# consensus database of indexd and PostgreSQL don't tolerate the file systems
+# Docker Desktop uses for bind mounts of Windows folders.
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    shm_size: 128mb
+    # give PostgreSQL time for a clean shutdown
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_USER: indexd
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the .env file}
+      POSTGRES_DB: indexd
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  indexd:
+    image: ghcr.io/mainquestion/indexd-smart-autopilot:${INDEXD_VERSION:?set INDEXD_VERSION in the .env file}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # indexd writes to the consensus database while it runs, don't cut it off
+    stop_grace_period: 90s
+    ports:
+      # admin UI and API: only this computer
+      - "127.0.0.1:${INDEXD_ADMIN_PORT:-9980}:9980/tcp"
+      # syncer: public, otherwise other Sia nodes can't connect to this one and
+      # it only has outgoing connections
+      - "${INDEXD_SYNCER_PORT:-9981}:9981/tcp"
+      # application API: this computer; publish it (and set advertiseURL in
+      # indexd.yml) to let apps outside connect
+      - "127.0.0.1:${INDEXD_APP_PORT:-9982}:9982/tcp"
+    volumes:
+      - indexd-data:/data
+
+volumes:
+  indexd-data:
+  postgres-data:
