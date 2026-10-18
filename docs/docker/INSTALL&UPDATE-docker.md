@@ -139,6 +139,10 @@ The fork's database schema migrations are applied forward and **cannot be rolled
 
    The log should show the new version and `fork migration complete` (if the version has new migrations), and the `api/state` response the same version. Then refresh the web interface page with **Ctrl+Shift+R**.
 
+**Updating from alpha.1.** The fork migrations (8 to 13) are applied in one start: the log shows one `fork migration complete` line per migration, the last one with `forkVersion 13`. The first start after the update may take a little longer than usual.
+
+**s3d.** If you use s3d, update it after indexd to `v0.2.0-alpha.1`: the new s3d sends transfer speed samples; without them the Performance score of the hosts stays at 1 (the other scores work). The new s3d works as before with an older indexd.
+
 The data in the volumes (chain database, PostgreSQL, configuration) is preserved during the update.
 
 ---
