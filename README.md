@@ -1,106 +1,158 @@
 # indexd Smart Autopilot
 
-[English](README.md) | [Українська](README_UA.md) | [Русский](README_RU.md)
+English | [Українська](README_UA.md) | [Русский](README_RU.md)
 
-**indexd Smart Autopilot** is an experimental extension of the Sia indexer that continues the Smart Autopilot work started in `renterd`.
+**indexd Smart Autopilot** — экспериментальное развитие индексатора Sia, продолжающее работу над Smart Autopilot, начатую в `renterd`.
 
-As the Sia ecosystem evolves, storage management increasingly benefits from separating responsibilities across components. In this architecture, `indexd` handles placement policies, host selection, admission rules, and part of the contract lifecycle management. `s3d` receives these policies and applies them when transferring data.
+По мере развития экосистемы Sia управление хранением всё больше требует разделения ответственности между компонентами. В этой архитектуре `indexd` отвечает за политики размещения, выбор хостов, правила допуска и часть управления жизненным циклом контрактов. `s3d` получает эти политики и применяет их при передаче данных.
 
-The project’s goal remains unchanged: rather than replacing existing mechanisms with an arbitrary algorithm, it adds a configurable intelligent layer for managing the host portfolio and data placement. The ideas and engineering experience gained while working on `renterd` are being carried into this architecture step by step.
+Цель проекта остаётся прежней: не заменить штатные механизмы произвольным алгоритмом, а добавить настраиваемый интеллектуальный слой управления портфелем хостов и размещением данных. Накопленные при работе над `renterd` идеи и инженерный опыт переносятся в эту архитектуру поэтапно.
 
-> **Status: experimental alpha.** Tested on one Windows node. Settings and database schema may change between alpha releases.
+> **Статус: экспериментальная альфа-версия.** Проверено на одном узле Windows. Перед обновлением обязательно сделайте резервную копию базы данных. Между альфа-выпусками возможны изменения настроек и схемы базы данных.
 
-## Relationship to renterd Smart Autopilot
+## Связь с renterd Smart Autopilot
 
-This repository continues the same development direction; it does not abandon the principles established earlier.
+Этот репозиторий продолжает то же направление разработки, а не отменяет ранее принятые принципы.
 
-- **A host profile instead of a single magic score.** Hosts should be evaluated across separate dimensions so that a high rating in one area does not hide a weakness in another.
-- **Seven scoring groups:** reliability, performance, resources, economics, risk/collateral, technical compatibility, and network diversity.
-- **Measurements separate from policy.** A host’s measured characteristics should be kept separate from user-defined thresholds, weights, and decision rules.
-- **Host portfolio management.** A host’s individual rating matters, but so does its effect on the overall reliability and independence of data placement.
-- **A safe lifecycle.** Pausing, replacing, and migrating contracts should protect data integrity and availability while avoiding unnecessary data movement.
-- **Transparency and configurability.** Decisions should have understandable reasons, and users should retain control over policies.
-- **Gradual rollout.** New decisions should be evaluated separately from existing behavior before they are actively applied.
+- **Профиль вместо единственного магического Score.** Хост должен оцениваться по отдельным измерениям, чтобы высокая оценка по одному параметру не скрывала слабость по другому.
+- **Семь групп оценки:** надёжность, производительность, ресурсы, экономика, риск/обеспечение, техническая совместимость и сетевая независимость.
+- **Измерения отдельно от политики.** Фактические характеристики хоста должны быть отделены от пользовательских порогов, весов и правил принятия решений.
+- **Управление портфелем хостов.** Важен не только индивидуальный рейтинг хоста, но и его влияние на совокупную надёжность и независимость размещения.
+- **Безопасный жизненный цикл.** Приостановка, замена и миграция должны учитывать сохранность и доступность данных и не создавать ненужного движения данных.
+- **Прозрачность и настройка.** Решения должны иметь объяснимые причины, а пользователь должен сохранять контроль над политиками.
+- **Постепенное внедрение.** Новые решения должны проверяться отдельно от штатного поведения до их активного применения.
 
-The seven-group model and full portfolio management are architectural goals. Not all of these elements are implemented in the current alpha release.
+Семигрупповая модель и полноценное управление портфелем — архитектурная цель. Не все её элементы реализованы в текущей альфа-версии.
 
-## Current version
+## Текущая версия
 
-- Release: **v0.1.0-alpha.1**
-- Build version: `v0.6.1-9fd0bf52`
-- Based on: `indexd v0.6.1` with fix [#1135](https://github.com/SiaFoundation/indexd/pull/1135)
-- Fork schema version: `7` (upstream schema: `28`)
-- Companion component: **s3d Smart Autopilot v0.1.0-alpha.1**, build `v0.2.1-a538024`
+- Версия: **v0.2.0-alpha.1**
+- Версия сборки: `v0.6.1-7838380a`
+- Основа: `indexd v0.6.1` с исправлением [#1135](https://github.com/SiaFoundation/indexd/pull/1135)
+- Версия схемы форка: `13` (upstream-схема: `28`)
+- Сопутствующий компонент: **s3d Smart Autopilot v0.2.0-alpha.1**, сборка `v0.2.1-ba6f8c9`
 
-This is an independent fork, not an official Sia Foundation release.
+Это независимый форк, не являющийся официальным выпуском Sia Foundation.
 
-## Implemented in the alpha release
+## Реализовано в альфа-версии
 
-### Placement policies
+### Группы оценки хостов Smart Autopilot
 
-- Configurable price allowance for new contracts: 80–95%.
-- Configurable minimum distance between hosts; `0` disables this restriction.
-- Placement radius relative to a reference point defined by an IP address or coordinates.
-- `prefer` mode: candidates inside the radius are preferred, followed by the nearest candidates outside it.
-- `strict` mode: only candidates inside the radius are allowed.
+В этой версии оценки хостов работают в режиме **Shadow**: они рассчитываются и показываются, но **не влияют на выбор хостов, формирование контрактов, паузы или миграции**.
 
-### Allowlist and blocking
+Оценки рассчитываются для *расчётного набора*: хостов пула, прошедших фильтры цены и расположения, плюс хостов с активным контрактом. У остальных хостов оценки нет и в таблице стоит `—`. Пересчёт выполняется раз в 10 минут и сразу при изменении соответствующих настроек.
 
-- A soft allowlist directs new contracts and new data to allowed hosts when a list is configured.
-- Existing contracts outside the allowlist remain readable. No new data is placed on those hosts, and they are phased out gradually as contracts expire.
-- Manual and automatic blocking reasons are stored separately: automatic unblocking does not remove a manual block.
+#### Performance (G2)
+
+- реальные измерения upload и download от s3d;
+- окно наблюдения 10 суток;
+- оценка относительно 95-го перцентиля расчётного набора;
+- измерения поступают через `POST /hosts/speed`;
+- на странице Hosts видны оценка и сырые значения Мбит/с.
+
+#### Resources (G3)
+
+Семь сигналов: наши данные, свободное место, чужие данные, финансовая экспозиция, оценка стоимости восстановления, остаток срока контракта и доля потерянных секторов. Сигналы объединяются в три блока и линейно нормируются по размаху расчётного набора.
+
+#### Economics (G4)
+
+Оценка строится по профилю использования для хранения, загрузки и скачивания, плюс оценка залога. Залог оценивается по отношению к цене хранения и по абсолютной величине; итоговая Economics — более слабая из оценки стоимости и оценки залога.
+
+Профиль и `k` настраиваются на Scoring. По умолчанию: **2 ТБ хранения / 2 ТБ загрузки / 0,5 ТБ скачивания в месяц, `k = 9`**. Цена загрузки включает временное хранение сектора 3 суток.
+
+#### Risk (G5)
+
+Оценивает нестабильность цен по истории. Изменение между соседними сканами становится событием после заданного порога; для ingress используется более высокий порог, для залога учитываются снижения. Движение цены сопоставляется с обратным движением курса SC/USD.
+
+Окно по умолчанию — 14 суток, настраивается на Scoring (`0` означает 14, максимум 120). При 0 или 1 ценовой точке оценка равна 10.
+
+### История для оценок
+
+Цены Storage, Ingress, Egress и Collateral при успешных сканах, результаты сканирования и курс SC/USD каждые 30 минут хранятся 120 суток и очищаются раз в сутки. История начинает копиться с первого запуска этой сборки.
+
+### Страница Hosts
+
+- меню **View** для показа и скрытия колонок;
+- сворачиваемые группы **Performance**, **Economics**, **Resources** и **Risk**;
+- в свёрнутом виде видна итоговая колонка группы, в развёрнутом — отдельные параметры;
+- группы по умолчанию свёрнуты, состояние хранится в браузере;
+- сортировка по оценкам и отдельным параметрам групп; хосты без оценки в конце;
+- Storage, Ingress, Egress и Collateral относятся к Economics, Remaining Storage и Total Storage — к Resources.
+
+### Политики размещения
+
+- Настраиваемый допуск по цене для новых контрактов: 80–95 %.
+- Настраиваемое минимальное расстояние между хостами; `0` отключает ограничение.
+- Радиус размещения относительно опорной точки — IP-адреса или координат.
+- `prefer`: сначала кандидаты внутри радиуса, затем ближайшие за его пределами.
+- `strict`: допускаются только кандидаты внутри радиуса.
+
+### Allowlist и блокировки
+
+- Мягкий allowlist направляет новые контракты и новые данные на разрешённые хосты.
+- Существующие контракты вне allowlist остаются доступными для чтения; новые данные на них не размещаются, а вывод выполняется постепенно.
+- Причины ручной и автоматической блокировки хранятся отдельно.
 
 ### Smart Gouging Pause
 
-For price checks, a pause policy can keep data on a host instead of immediately triggering migration solely because a price has changed.
+Для ценовых проверок доступна политика приостановки, позволяющая сохранять данные на хосте вместо немедленной миграции только из-за изменения цены.
 
-- `Original`, `Shadow`, and `Active` modes.
-- `Keep Gouging Contract Until Replacement` and `Allow Existing Data on Overpriced Contracts` settings.
-- Configurable pause timeout (336 hours in the current alpha configuration).
-- Collateral-to-price checks and protective recovery using Reed–Solomon.
-- `smart-autopilot.log`, alerts, the `Scoring` page, and the `Paused` column.
+- режимы `Original`, `Shadow` и `Active`;
+- `Keep Gouging Contract Until Replacement` и `Allow Existing Data on Overpriced Contracts`;
+- настраиваемый тайм-аут;
+- проверка соотношения залога и цены и защитное восстановление с учётом Reed–Solomon;
+- `smart-autopilot.log`, оповещения, страница `Scoring` и колонка `Paused`.
 
-`Original` and `Shadow` preserve the upstream decision-making behavior; `Shadow` additionally records decisions for analysis. Review the release notes before enabling `Active`.
+Режимы `Original` и `Shadow` сохраняют штатную логику; `Shadow` дополнительно записывает решения для анализа.
 
-### Redundancy policy and API
+### Политика избыточности и API
 
-- The user-defined erasure-coding policy is specified as a K/N scheme.
-- The policy is exposed to client applications through `GET /account`.
-- In the current model, a user-defined policy can relax the default threshold, but cannot make it stricter.
+- Пользовательская политика кодирования задаётся схемой K/N.
+- Политика передаётся клиентам через `GET /account`.
+- `GET /hosts` возвращает `performance`, `economics`, `resources` и `risk` для хостов расчётного набора.
+- `POST /hosts/speed` принимает измерения скорости от совместимого клиента.
+- Профиль Economics и окно Risk доступны через `/settings/smart`.
 
-### Candidate preview
+### Предварительный просмотр кандидатов
 
-`GET /hosts/candidates` and the `Candidates` view in the web interface show candidates for new contracts under the current settings, including their ranks, distances, and exclusion reasons. The preview uses the same selection mechanism as actual contract formation.
+`GET /hosts/candidates` и режим `Candidates` показывают кандидатов для новых контрактов, их ранги, расстояния и причины исключения.
 
-### Interface and data transfer
+### Пауза по доступности
 
-- Multi-level sorting, sorting by location and candidate data, and a `Collateral` column.
-- Settings for upload and download speed limits during migration.
-- Client transfer limits based on quotas and accounts are exposed through `GET /account`; a compatible client, such as `s3d Smart Autopilot`, must enforce them.
-- The build version is shown in logs, the `indexd version` command, `GET /api/state`, and the web interface.
+Хост с низкой доступностью (uptime) попадает в тот же механизм паузы, что и Smart Gouging Pause, с использованием `Host grace period`.
 
-## Future development goals
+### Передача данных и ограничения
 
-The following items describe the Smart Autopilot direction and should not be understood as features already implemented in this release:
+- Настройки ограничений скорости загрузки и скачивания при миграции.
+- Ограничения клиентов передаются через `GET /account`; применить их должен совместимый клиент, в частности `s3d Smart Autopilot`.
+- Версия сборки отображается в журнале, `indexd version`, `GET /api/state` и веб-интерфейсе.
 
-- A complete seven-group host profile and a configurable aggregate `Smart Overall` score.
-- Using host profiles and the current portfolio composition when selecting new hosts and replacing existing ones.
-- Limiting the number of shards placed in one location instead of relying only on minimum distance.
-- Additional pause reasons unrelated to price, such as uptime, contract duration, and a host refusing new contracts.
-- A configurable collateral margin when forming contracts.
-- Interruptible migrations, deferred recovery, and migration priorities based on slab state.
-- Reattaching lost sectors when a host returns, where possible, instead of always uploading them again.
+## Что остаётся целью развития
+
+Следующие части семигрупповой архитектуры пока не реализованы как рабочая система:
+
+- G1 **Reliability** как отдельная оценка;
+- G6 **Technical Compatibility** как отдельная оценка;
+- G7 **Network Diversity** как отдельная оценка;
+- настраиваемая агрегированная оценка `Smart Overall`;
+- использование профиля хоста и состава текущего портфеля при выборе новых хостов и замене существующих;
+- ограничение числа шардов на одну локацию вместо опоры только на минимальное расстояние;
+- дополнительные причины приостановки, не связанные с ценой;
+- настраиваемый запас по залогу при формировании контракта;
+- прерываемые миграции, отложенное восстановление и приоритеты миграции в зависимости от состояния slab;
+- повторная привязка потерянных секторов при возвращении хоста, когда это возможно.
+
 
 ## Upstream
 
 - [SiaFoundation/indexd](https://github.com/SiaFoundation/indexd)
-- [Fix #1135](https://github.com/SiaFoundation/indexd/pull/1135)
-- [Issue #1138](https://github.com/SiaFoundation/indexd/issues/1138)
+- [Исправление #1135](https://github.com/SiaFoundation/indexd/pull/1135)
+- [Исправление #1138](https://github.com/SiaFoundation/indexd/issues/1138)
 
-## License
+## Лицензия
 
-This project is based on [SiaFoundation/indexd](https://github.com/SiaFoundation/indexd) and continues the Smart Autopilot concept first researched and implemented in `renterd`.
+Проект основан на [SiaFoundation/indexd](https://github.com/SiaFoundation/indexd) и продолжает развитие концепции Smart Autopilot, первоначально исследованной и реализованной в `renterd`.
 
-The project is distributed under the MIT License. The Sia Foundation copyright notice and license terms are preserved in [LICENSE](LICENSE).
+Проект распространяется по лицензии MIT. Авторское уведомление The Sia Foundation и условия лицензии сохранены в файле [LICENSE](LICENSE).
 
-This is an independent fork and is not an official Sia Foundation release.
+Это независимый форк, не являющийся официальным выпуском Sia Foundation.
