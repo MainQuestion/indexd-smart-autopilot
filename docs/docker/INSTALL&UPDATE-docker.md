@@ -129,21 +129,33 @@ The fork's database schema migrations are applied forward and **cannot be rolled
    docker compose pull
    ```
 
-4. **Starting and checking.**
+4. **Launch and verification.**
 
-   ```powershell
-   docker compose up -d
-   docker compose logs -f indexd
-   curl.exe -s -u ":<admin password>" http://127.0.0.1:9980/api/state
-   ```
+```powershell
+docker compose up -d
+docker compose logs -f indexd
+curl.exe -s -u ":<admin password>" http://127.0.0.1:9980/api/state
+```
 
-   The log should show the new version and `fork migration complete` (if the version has new migrations), and the `api/state` response the same version. Then refresh the web interface page with **Ctrl+Shift+R**.
+The logs should show the new version (`v0.3.0-rc.1`) along with `fork migration complete` entries (if the new version includes migrations); the `api/state` response should also reflect this version. Afterward, refresh the interface page using **Ctrl+Shift+R**. 
 
-**Updating from alpha.1.** The fork migrations (8 to 13) are applied in one start: the log shows one `fork migration complete` line per migration, the last one with `forkVersion 13`. The first start after the update may take a little longer than usual.
+If `Smart Active` or `Smart Shadow` mode is enabled, review the autopilot’s decisions in `smart-autopilot.log` (located in the `indexd` data directory) and on the **Hosts** page.
 
-**s3d.** If you use s3d, update it after indexd to `v0.2.0-alpha.1`: the new s3d sends transfer speed samples; without them the Performance score of the hosts stays at 1 (the other scores work). The new s3d works as before with an older indexd.
+**Before upgrading from v0.2.0-alpha.1, check your autopilot mode.** In `Smart Active` mode, the new version will immediately begin executing a portfolio plan (creating and replacing contracts). Verify the current mode while the **old** container is still running:
 
-The data in the volumes (chain database, PostgreSQL, configuration) is preserved during the update.
+```powershell
+curl.exe -s -u ":<admin password>" http://127.0.0.1:9980/api/settings/smart
+```
+
+If the response shows `"mode":"active"`, switch it to `Smart Shadow` on the **Scoring** page (labeled as **Autopilot Mode** in the new version) before updating the image. Monitor the proposed plan in `smart-autopilot.log`, then re-enable `Smart Active`. As an emergency stop, switch back to `Smart Shadow`.
+
+**Upgrading from v0.2.0-alpha.1.** Fork migrations 14 through 17 will be applied in a single run; the logs will show one `fork migration complete` entry for each migration, with the final entry indicating `forkVersion 17`. The first startup after an update may take longer than usual. Migrations are irreversible, so please back up your PostgreSQL database before performing the update.
+
+**Updating from v0.1.0-alpha.1.** Fork migrations 8 through 17 are applied in a single run, with the final migration being `forkVersion 17`.
+
+**s3d.** If you are using s3d, please update it to `v0.3.0-rc.1` after updating indexd. The new version of s3d provides speed measurements (for performance assessment) and cost reports (the Σ columns on the Contracts page). Additionally, when in `Smart Active` mode, it distributes new uploads according to the "Smart Overall" strategy; since the mode is determined by indexd, it may take up to 10 minutes after startup for the "Smart Overall" distribution to begin. The new version of s3d remains compatible with older versions of indexd.
+
+Data stored in volumes (chain database, PostgreSQL, configuration) is preserved during the update.
 
 ---
 
