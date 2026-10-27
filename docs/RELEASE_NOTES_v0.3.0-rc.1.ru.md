@@ -63,6 +63,10 @@
 
 Проверка: `Get-FileHash -Algorithm SHA256 <файл>`
 
+- Docker-образ: `ghcr.io/mainquestion/indexd-smart-autopilot:v0.3.0-rc.1`
+- Digest: `sha256:e494cbe81f5832ce3ede0a1d7f107824006007aa7d3a9acce661fdbc91f3e65c`
+- `docker pull ghcr.io/mainquestion/indexd-smart-autopilot:v0.3.0-rc.1`
+
 ## Лицензия
 
 MIT (Copyright (c) 2025 The Sia Foundation); тексты лицензий приложены к релизу. База MaxMind `GeoLite2-City.mmdb` в релиз не входит.
