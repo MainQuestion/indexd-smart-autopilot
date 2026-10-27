@@ -66,7 +66,7 @@ The status should be `Exited (0)`. The PostgreSQL container stays running (`dock
 
 ### Step 4. Restore the database in Docker
 
-Before wiping the Docker database, take a dump of it (see the "Updating" section of the [Docker guide](INSTALL-docker.en.md)): you will need it for a rollback.
+Before wiping the Docker database, take a dump of it (see the "Updating" section of the [Docker guide](https://github.com/MainQuestion/indexd-smart-autopilot/blob/main/docs/docker/INSTALL%26UPDATE-docker.md)): you will need it for a rollback.
 
 ```powershell
 docker compose cp $w postgres:/tmp/win.dump
