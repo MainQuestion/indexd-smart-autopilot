@@ -13,7 +13,7 @@ This guide describes how to move a running indexd Smart Autopilot node, with all
 
 ## What you need beforehand
 
-- The Docker node is installed following the [guide](INSTALL-docker.en.md), the **same recovery phrase** as the node you are moving was entered in the wizard, and it is fully synchronized (`synced: true`). Check: `GET /api/wallet` returns the same address on both nodes.
+- The Docker node is installed following the [guide](https://github.com/MainQuestion/indexd-smart-autopilot/blob/main/docs/docker/INSTALL%26UPDATE-docker.md), the **same recovery phrase** as the node you are moving was entered in the wizard, and it is fully synchronized (`synced: true`). Check: `GET /api/wallet` returns the same address on both nodes.
 - The image version is **not older** than the version of the database you are moving. The fork's migrations are applied forward at start, while an image older than the database refuses to start with `fork schema version N is newer than expected M`.
 - Space for the dump (usually a few MB) and for a copy of `s3d.db`.
 - Do not postpone the move: while the system is off, contracts are not renewed, and they expire in a few weeks.
