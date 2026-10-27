@@ -13,7 +13,7 @@
 
 ## Що потрібно заздалегідь
 
-- Docker-вузол установлено за [інструкцією](INSTALL-docker.uk.md), у майстрі введено **ту саму recovery phrase**, що й у вузла, який переносите, і він повністю синхронізований (`synced: true`). Перевірка: `GET /api/wallet` в обох вузлів повертає одну й ту саму адресу.
+- Docker-вузол установлено за [інструкцією](https://github.com/MainQuestion/indexd-smart-autopilot/blob/main/docs/docker/INSTALL%26UPDATE-docker.ua.md), у майстрі введено **ту саму recovery phrase**, що й у вузла, який переносите, і він повністю синхронізований (`synced: true`). Перевірка: `GET /api/wallet` в обох вузлів повертає одну й ту саму адресу.
 - Версія образу **не старша** за версію бази, яку переносите. Міграції форку застосовуються вперед під час старту, а образ, старіший за базу, відмовиться запускатися з помилкою `fork schema version N is newer than expected M`.
 - Місце для дампа (зазвичай кілька МБ) і для копії `s3d.db`.
 - Не зволікайте з перенесенням: поки система вимкнена, контракти не продовжуються, а вони закінчуються за кілька тижнів.
@@ -66,7 +66,7 @@ docker compose ps -a indexd
 
 ### Крок 4. Відновлення бази в Docker
 
-Перш ніж стирати Docker-базу, зніміть її дамп (порядок описано в розділі «Оновлення» [інструкції Docker](INSTALL-docker.uk.md)): він знадобиться під час відкоту.
+Перш ніж стирати Docker-базу, зніміть її дамп (порядок описано в розділі «Оновлення» [інструкції Docker](https://github.com/MainQuestion/indexd-smart-autopilot/blob/main/docs/docker/INSTALL%26UPDATE-docker.ua.md)): він знадобиться під час відкоту.
 
 ```powershell
 docker compose cp $w postgres:/tmp/win.dump
