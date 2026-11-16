@@ -4,11 +4,11 @@ English | [Українська](README_UA.md) | [Русский](README_RU.md)
 
 **indexd Smart Autopilot** is an experimental evolution of the Sia indexer, continuing the Smart Autopilot work originally developed in `renterd`.
 
-In this architecture, `indexd` provides placement policies, host selection, admission rules, host scores, and part of contract lifecycle management, while `s3d` receives these policies and applies them during data transfers.
+In this architecture, `indexd` provides placement policies, host selection, admission rules, host scores, and part of contract lifecycle management, while `s3d` receives these policies and applies them during data transfers. `indexd` can also send hosts short encrypted signals on the blockchain (a pause reason, the host's own scores).
 
 The goal is not to replace standard mechanisms with an arbitrary algorithm, but to add a configurable intelligent layer for host-portfolio management and data placement.
 
-> **Status: release candidate.** Tested on one Windows node. Always back up the database before upgrading and read the release notes: in `Smart Active` mode the autopilot executes its plan. Settings and database schema may still change before the final release.
+> **Status: release candidate.** Tested on one Windows node. Always back up the database before upgrading and read the release notes: in `Smart Active` mode the autopilot executes its plan. Sending signals to hosts and the host work share report are **off by default**. Settings and database schema may still change before the final release.
 
 ## Relation to renterd Smart Autopilot
 
@@ -26,13 +26,13 @@ The seven-group model and full portfolio management remain architectural goals. 
 
 ## Current version
 
-- Release: **v0.3.0-rc.1**
-- Build version: `v0.3.0-rc.1` (commit `c8183a9e`)
+- Release: **v0.4.0-rc.1**
+- Build version: `v0.4.0-rc.1` (commit `6c9d7593`)
 - Base: `indexd v0.6.1` with [#1135](https://github.com/SiaFoundation/indexd/pull/1135)
-- Fork schema version: `17` (upstream schema: `28`)
-- Web UI: `feat/indexd-ui-polish`
-- Companion: **s3d Smart Autopilot v0.3.0-rc.1**
-- Previous release: v0.2.0-alpha.1
+- Fork migrations: up to **#25** (upstream schema: `28`)
+- Web UI: `feat/indexd-ui-signals`
+- Companions: **s3d v0.3.1-rc.1** (transfer summaries), **hostd-extended v0.2.0-alpha.1** (receives signals)
+- Previous release: v0.3.0-rc.1
 
 This is an independent fork and is not an official Sia Foundation release.
 
@@ -47,6 +47,38 @@ One switch controls the whole Smart layer.
 - `Smart Active`: Smart Autopilot manages the contract portfolio and places new uploads by Smart Overall.
 
 API values are `original`, `shadow` and `active` (`/settings/smart`). Pauses that have already started are served in every mode.
+
+### Signals to hosts (new)
+
+`indexd` can tell a host what the host cannot see on its own. A signal is a short encrypted record sent **on the Sia blockchain**; it triggers no automatic action on the host side and is only shown to the operator.
+
+- **`0x10` — pause.** Sent when a Smart pause **begins** (in `Smart Active` only), with the reason: prices above the allowed limits, unavailability, insufficient collateral, an economic reason.
+- **`0x20` — scores.** The host's own four scores (Performance, Economics, Resources, Risk) and the number of days in the pool. The message carries **no data about other hosts or the pool** (no share, rank or host count).
+- **Only to consenting hosts.** The host operator publishes a `signals/v0` attestation on the blockchain (done by hostd-extended); revoking it or a block reorg withdraws the consent. A host without consent is sent nothing.
+- **Delivery.** Every 10 minutes the queue is checked; events younger than 1 hour, one per host and signal type, go out in **one v2 transaction** with a single `ArbitraryData` field (`SIG0` plus fixed 88-byte records). The only cost is the transaction fee (about 0.011 SC for one record on mainnet).
+- **Protection.** Records are encrypted and authenticated (ed25519 → X25519, HKDF-SHA256, XChaCha20-Poly1305) and addressed by a per-batch rotating tag, so an observer cannot tell which hosts received records or what they contain. The host accepts at most 12 signals per hour per renter and only with a strictly increasing sequence number.
+- **Control.** One switch **Send signals automatically** in the **Scoring** window enables both signals (**off by default**) and shows how many hosts accepted and the last send. `POST /settings/signals/test-share-message` sends a `0x20` test record to one consenting host (administrator only; intended for testing in the release candidate and may be removed in the final release).
+- **Where to see results.** The `host-signals.log` journal in the data directory (one `SENT` / `FAILED` line per send with the full host key and transaction id, height, sequence number and content; rotation 10 MB × 3), an Info line in the main log, a yellow envelope next to the check mark in the **Accepted** column of the Hosts table, and `GET /settings/signals`.
+
+Code `0x02` is reserved and unused.
+
+### Host work share report (new)
+
+A service report that **affects nothing** (not Smart Overall, the queue, pauses or contracts): it decides which hosts should get an informational `0x20` signal.
+
+- The metric is our data on a host per day in the pool relative to the median of scored hosts; time in the pool is counted from the root of the contract renewal chain.
+- Candidates: the bottom tenth of scored hosts (rounded up, at least one) with a share below 60% of the median; repeated no more than once every 10 days, after a random delay of up to 6 hours.
+- Only eligible hosts are scored (usable, not paused, not blocked, good contract, at least 2 days). Skipped when fewer than three hosts are scored.
+- Files in the data directory: `host-work-share-current.json` and `host-work-share.jsonl` (rotation 20 MB × 5). Settings: `GET/PUT /settings/work-share-report`. **Off by default.**
+
+### Transfer events from clients (new)
+
+Clients (for example, the `s3d` fork) send per-host summaries of transfer attempts: attempts, lost races, timeouts, connection failures and **host error responses** (`host_error`), stored by hour (`host_usage_hourly`, `usage_batch_hosts`) and used by the work share report. Client-side errors (bad request, payment, expired prices) are not counted as host errors.
+
+### Host client fixes (new)
+
+- **Retry on `ErrInactiveConn`.** A connection idle for about an hour is closed by the multiplexer but used to stay in the cache; the next call failed and was recorded as a host failure, so Smart Placement skipped a healthy host for 5–7 minutes. The call is now retried once on a fresh connection (only if no byte was sent in the attempt) and no failure is recorded if the retry succeeds.
+- **Quiet contract formation log.** The "hosts outside the allowlist" and "filtered new contract candidates" lines are written at Info when the numbers change and at most once an hour, otherwise at Debug.
 
 ### Smart Autopilot host scoring groups (G2-G5)
 
@@ -131,9 +163,10 @@ Host Storage, Ingress, Egress and Collateral prices from successful scans, scan 
 ### Hosts and Contracts UI
 
 - **Hosts.** One view switch `Candidates | Usable + contracts | All`; by default hosts with a contract or on a Smart pause are shown even when they are not usable.
-- **Hosts.** Usable shows one check mark (failed checks in a tooltip); price icons turn yellow when a price is within the limit but above the contract formation limit; a sortable **Accepted** column shows hosts with an active good contract.
+- **Hosts.** Usable shows one check mark (failed checks in a tooltip); price icons turn yellow when a price is within the limit but above the contract formation limit; a sortable **Accepted** column shows hosts with an active good contract, with a yellow envelope next to the check mark for hosts that accept signals.
 - **Hosts.** **View** menu, collapsible Performance, Economics, Resources and Risk groups (short labels Perf, Econ, Reso, Risk), sorting by scores and parameters; column widths follow the content and the page renders much faster.
 - **Contracts.** Columns **My Data**, **Σ spent**, **Σ storage**, **Σ ingress**, **Σ egress** and **Σ collateral**; a View menu; a panel with the data on the host, the spending by category and source, the transfers, the scores and the pause reason; a contract of a paused host shows **Pause**.
+- **Scoring.** The **Signals to hosts** block with the **Send signals automatically** switch.
 - Muted labels and the world map are brighter, and the log lines that used to repeat every two minutes are written only when the state changes.
 
 ### Placement policies
@@ -166,9 +199,10 @@ A price-policy pause mechanism can keep data on a host instead of immediately st
 
 - User erasure-coding policy is defined as a K/N scheme and provided to clients through `GET /account`.
 - The current model can relax the standard threshold but cannot make it stricter.
-- `GET /hosts` returns `performance`, `economics`, `resources`, `risk`, `smartOverall` and `hasContract` for hosts in the evaluation set; its `involved` parameter selects usable hosts plus hosts with a contract or a pause.
-- `POST /hosts/speed` and `POST /hosts/usage` accept measurements from a compatible client.
+- `GET /hosts` returns `performance`, `economics`, `resources`, `risk`, `smartOverall` and `hasContract` for hosts in the evaluation set; its `involved` parameter selects usable hosts plus hosts with a contract or a pause. It also returns `acceptsSignals` for each host.
+- `POST /hosts/speed` and `POST /hosts/usage` accept measurements and transfer summaries from a compatible client.
 - `GET /smart/portfolio-plan` and `GET /host/{hostkey}/spending`.
+- `GET/PUT /settings/signals` and `GET/PUT /settings/work-share-report`.
 - Economics profile, Risk window, Smart Overall weights and the replacement threshold are available through `/settings/smart`.
 
 ### Candidate preview
@@ -184,6 +218,12 @@ A host with low availability (uptime) enters the same pause mechanism as Smart G
 - Configurable upload and download limits for migration.
 - Client transfer limits configured through quotas and accounts are provided by `GET /account`; a compatible client, in particular `s3d Smart Autopilot`, must enforce them.
 - The build version is shown in logs, `indexd version`, `GET /api/state`, and the web interface.
+
+## Known limitations
+
+- The work share report and host messages are designed for small pools; on a pool of a few hosts the results are noisy.
+- The admin API listens on all addresses by default. Set a strong administrator password and restrict access with a firewall.
+- The Blockchain node page does not list connected peers, as in the official indexd (there is no peers endpoint).
 
 ## Future development
 
