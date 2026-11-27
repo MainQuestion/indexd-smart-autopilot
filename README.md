@@ -4,11 +4,57 @@ English | [Українська](README_UA.md) | [Русский](README_RU.md)
 
 **indexd Smart Autopilot** is an experimental evolution of the Sia indexer that continues the Smart Autopilot work started in `renterd`.
 
-In this architecture `indexd` provides placement policies, host selection, admission rules, host scores and part of the contract lifecycle management, while `s3d` receives these policies and applies them when transferring data. In addition, `indexd` can send hosts short encrypted signals on the blockchain (the reason for a pause, the host's own scores).
+If a host develops a problem (an overpriced host, unavailability, insufficient collateral), the standard logic withdraws the contract and moves its data to other hosts, and moving data costs money. Smart Autopilot puts such a contract **on pause** and moves the data only when a replacement is economically justified (details in the "Core idea" section below).
+
+In this architecture `indexd` provides placement policies, host selection, admission rules, host scores and the contract lifecycle management (above all pauses), while `s3d` receives these policies and applies them when transferring data. In addition, `indexd` can send hosts short encrypted signals on the blockchain (the reason for a pause, the host's own scores).
 
 The goal is not to replace the standard mechanisms with an arbitrary algorithm, but to add a configurable intelligent layer for managing the host portfolio and data placement.
 
 > **Status: release candidate.** Tested on a single Windows node. Always back up the database before updating and read the release notes: in `Smart Active` mode the autopilot carries out its plan. Sending signals to hosts and the host work share report are **off by default**. Settings and the database schema may change before the final release.
+
+## Core idea: pause instead of migration
+
+**A contract that has a problem does not have to be withdrawn and moved immediately. Smart Autopilot puts it on pause and moves the data only when that is really justified.**
+
+### The problem
+
+In the standard logic, a host that went beyond the allowed prices, became unavailable or fails the checks leads to the withdrawal of the contract and the move of its data to other hosts. Moving costs money: the data has to be read from the remaining hosts, reconstructed, written again, and the transfer and storage paid at the prices of the new hosts. A price jump or a short outage can start such moves on several hosts at once, and the expense becomes out of proportion to the problem that started it.
+
+### What a pause does
+
+- A contract on pause **receives no new data**, and the data already on the host **stays in place**: no move is started just because of a price change or a temporary failure.
+- A contract on pause **occupies a slot** of the portfolio, so the system does not create extra contracts when several hosts go on pause at the same time.
+- A replacement is made **only when it is justified**: the cost of keeping is compared with the cost of moving. If it is not justified, the contract stays on an "economic pause".
+- A replacement is safe: **the new contract is formed first, and only then the old host is released**; one host is released at a time.
+- Before any data is withdrawn, it is checked that enough of it remains for recovery (Reed-Solomon).
+- The host can be **told the reason for the pause** by a `0x10` signal on the blockchain (if it agreed to receive signals).
+
+### How it looks
+
+```text
+Good
+  → Pause (price / availability / collateral / economics)
+      → the problem went away                       → Good again, no move was needed
+      → a candidate is found, replacement justified → new contract → then the old host is released
+      → replacement not justified                   → stays on the economic pause
+      → pause timeout                               → replacement by the slot rules (N+2)
+```
+
+### Reasons for a pause
+
+1. **Prices above the allowed** (Smart Gouging Pause).
+2. **Unavailability** of the host (low uptime, `Host grace period`).
+3. **Insufficient collateral**.
+4. **Economic reason**: a better candidate exists, but moving the data still costs more than keeping it.
+
+### What is configurable
+
+- Autopilot Mode: only `Smart Active` starts pauses; `Smart Shadow` only writes to the log what the autopilot would have done; pauses that have already started are served in all modes.
+- `Keep Gouging Contract Until Replacement` and `Allow Existing Data on Overpriced Contracts`.
+- The pause timeout and `Host grace period`.
+- The replacement threshold (15% on Economics) on the **Scoring** page.
+
+Where to see the result: `smart-autopilot.log`, alerts, the Scoring page, the `Paused` column and the contract panel on the Contracts page (the reason for the pause). Detailed description: "Contract pauses" in "Implemented in this release candidate".
 
 ## Relation to Smart Autopilot for renterd
 
@@ -18,7 +64,7 @@ The project continues the same line of development and keeps the main principles
 - **Seven score groups:** reliability, performance, resources, economics, risk/collateral, technical compatibility and network independence.
 - **Measurements separate from policy.** The actual characteristics of a host should be kept apart from user-defined thresholds, weights and decision rules.
 - **Host portfolio management.** What matters is not only the score of a single host but also its effect on the reliability and independence of the placement as a whole.
-- **Safe lifecycle management.** Pause, replacement and migration must keep data available and avoid unnecessary movement.
+- **Safe lifecycle management.** A problem contract is first put on pause, and replacement and data migration are performed only when justified and always with the data kept available.
 - **Transparency and configurability.** Decisions have clear reasons, and users keep control over policies.
 - **Gradual rollout.** New decision mechanisms are verified separately from the standard behavior before they become active.
 
@@ -58,6 +104,37 @@ One switch controls the whole Smart layer.
 - `Smart Active`: Smart Autopilot manages the contract portfolio and places new uploads by Smart Overall.
 
 API values: `original`, `shadow` and `active` (`/settings/smart`). Pauses that have already started are served in all modes.
+
+### Contract pauses
+
+Pauses are the main mechanism that prevents unnecessary data migrations (see "Core idea"). They are controlled by Autopilot Mode: `Smart Active` starts new pauses, while `Original` and `Smart Shadow` keep the standard decision logic (`Smart Shadow` additionally records the decisions for analysis).
+
+#### Price pause (Smart Gouging Pause)
+
+A pause by the price policy can leave the data on the host instead of immediately starting a migration just because of a price change.
+
+- `Keep Gouging Contract Until Replacement` and `Allow Existing Data on Overpriced Contracts`.
+- A configurable pause timeout.
+- Checks of the collateral-to-price ratio and safe recovery that takes Reed-Solomon into account.
+- `smart-autopilot.log`, alerts, the Scoring page and the `Paused` column.
+
+#### Availability pause
+
+A host with low availability (uptime) falls into the same pause mechanism as Smart Gouging Pause, using `Host grace period`.
+
+#### Economic pause
+
+If a replacement is not yet justified (moving the data still costs more than keeping it), the contract gets an **economic pause** (one at a time, with an alert). It is lifted when nothing else fits or Smart leaves Active. More about the replacement rule: "Portfolio plan and execution".
+
+#### Slots and replacement of hosts on pause
+
+- Contracts of hosts in a Smart pause **occupy slots**: Good + Paused, except a pause for which a replacement already exists.
+- A host on pause is replaced only when Good is below N+2, where N is the number of shards of the redundancy scheme: never at N+2 or more, immediately below N, in between after the pause timeout; at most one replacement per pass, only in `Smart Active`.
+- This keeps the system from forming extra contracts when several hosts go on pause at the same time because of overpriced settings. The candidate preview uses the same rules.
+
+#### Signal to the host
+
+When a pause starts, a host that has agreed can be sent a `0x10` signal with the reason (see "Signals to hosts").
 
 ### Signals to hosts (new)
 
@@ -148,16 +225,12 @@ The decision engine was ported from `renterd`.
 - The plan is computed in `Smart Shadow` and `Smart Active` and logged; `GET /smart/portfolio-plan` returns the last plan and the execution results.
 - **ADD** forms new contracts in a canonical order (Economics, Risk on an exact tie) instead of a random one; the placement radius remains a grouping.
 - **REPLACE** (no more than once every 4 hours, one replacement per window): the worst contract is the one with status Good and the lowest **Economics** (on a tie, the lower Smart Overall, then the public key). A candidate qualifies if its Economics is **strictly greater** than `worst Economics × (1 + threshold/100)`, its Smart Overall is not lower than the worst's, it is not `TooClose` and it belongs to the pool of allowed candidates; the largest `(Economics + Smart Overall) / 2` is chosen. The replacement is carried out when the migration is economically justified (a contract without data counts as justified). The new contract is formed first; only then is the old host released.
-- If a replacement is not yet justified, the contract gets an **economic pause** (one at a time, with an alert), which is lifted when nothing else qualifies or Smart leaves Active.
+- If a replacement is not yet justified, the contract gets an **economic pause** (one at a time, with an alert), which is lifted when nothing else qualifies or Smart leaves Active (see "Contract pauses").
 - Only one replacement is released at a time; the release is considered complete when none of our sectors remain on the host.
 
-### Contract formation rules
-
-- Contracts of hosts in a Smart pause **occupy slots**: Good + Paused, except a pause for which a replacement already exists.
-- A paused host is replaced only when Good is below N+2, where N is the number of shards of the redundancy scheme: never at N+2 and above, immediately below N, in between after the pause timeout; no more than one replacement per pass, only in `Smart Active`.
-- This keeps the system from forming extra contracts when several hosts go into a pause at once because of inflated prices. The candidate preview uses the same rules.
-
 ### Candidate pause after a failed formation
+
+This is not a contract pause but a temporary exclusion of a host from the candidates for new contracts.
 
 - After a failure **caused by the host**, the host is excluded from add and replacement candidates for **24 hours**; each next consecutive failure doubles the period, up to **7 days**. A success resets the record.
 - Not counted as a host fault: insufficient wallet funds, client-side RPC errors, cancellation, skipped due to conditions, state races.
@@ -204,18 +277,6 @@ The host's Storage, Ingress, Egress and Collateral prices from successful scans,
 - Existing contracts outside the allowlist stay readable; no new data is placed on them, and removal happens gradually as the contracts expire.
 - The reasons for manual and automatic blocking are stored separately.
 
-### Smart Gouging Pause
-
-The price policy pause mechanism can keep data on a host instead of immediately starting a migration just because of a price change.
-
-- Controlled by Autopilot Mode (`Original`, `Smart Shadow`, `Smart Active`).
-- `Keep Gouging Contract Until Replacement` and `Allow Existing Data on Overpriced Contracts`.
-- A configurable pause timeout.
-- Collateral-to-price ratio checks and safe recovery that accounts for Reed-Solomon.
-- `smart-autopilot.log`, alerts, the Scoring page and the `Paused` column.
-
-`Original` and `Smart Shadow` keep the standard decision logic; `Smart Shadow` additionally records decisions for analysis.
-
 ### Redundancy policy and API
 
 - A custom erasure coding policy is set as a K/N scheme and passed to clients through `GET /account`.
@@ -230,10 +291,6 @@ The price policy pause mechanism can keep data on a host instead of immediately 
 
 `GET /hosts/candidates` and the `Candidates` view show candidates for new contracts under the current settings, including ranks, distances and exclusion reasons. The preview uses the same selection mechanism and the same slot rules as real contract formation.
 
-### Availability pause
-
-A host with low availability (uptime) goes into the same pause mechanism as the Smart Gouging Pause, using `Host grace period`.
-
 ### Data transfer and limits
 
 - Configurable upload and download limits for migration.
@@ -244,7 +301,7 @@ A host with low availability (uptime) goes into the same pause mechanism as the 
 
 - The work share report and the host messages are designed for small pools; on a pool of a few hosts the results are noisy.
 - The admin API listens on all addresses by default. Set a strong administrator password and restrict access with a firewall.
-- Any funding RPC error (for example, a hostd restart) puts the host on a funding pause of **up to 2 hours**; do not restart hostd or indexd during a large upload. The upstream funding metrics consider accounts "ready" once funded on 30 hosts and are not suitable as an "account is empty" alert for a pool of 5 hosts.
+- Any funding RPC error (for example, a hostd restart) puts the host on an account funding pause (not a contract pause) of **up to 2 hours**; do not restart hostd or indexd during a large upload. The upstream funding metrics consider accounts "ready" once funded on 30 hosts and are not suitable as an "account is empty" alert for a pool of 5 hosts.
 - The database schema changed (28 → 32): take a dump before updating; rollback only by restoring the dump.
 - The Blockchain node page does not show connected peers, as in the official indexd (there is no endpoint that lists peers).
 
